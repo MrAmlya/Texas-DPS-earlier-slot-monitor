@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Texas DPS — earlier slot monitor</title>
+  <link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="head">
+      <h1>Texas DPS earlier-slot monitor</h1>
+      <p class="sub">
+        Watches for earlier DPS appointments near your ZIP and can reschedule automatically.
+        Use only on your own computer; your details stay in this app’s memory until you close it.
+      </p>
+    </header>
+
+    <div id="status-strip" class="status-strip" role="status" aria-live="polite">
+      <span id="status-text">Idle — save settings to begin</span>
+    </div>
+
+    <details id="appointment-panel" class="card appointment-panel" hidden>
+      <summary>Appointment details</summary>
+      <div class="appointment-grid">
+        <p id="row-current" class="appointment-row">
+          <span class="appointment-label">Current appointment</span>
+          <span id="appt-current" class="appointment-value">Unknown</span>
+        </p>
+        <p id="row-current-location" class="appointment-row">
+          <span class="appointment-label">Current location</span>
+          <span id="appt-current-location" class="appointment-value">Unknown</span>
+        </p>
+        <p id="row-latest-found" class="appointment-row">
+          <span class="appointment-label">Latest earlier slot found</span>
+          <span id="appt-latest-found" class="appointment-value">None yet</span>
+        </p>
+        <p id="row-latest-location" class="appointment-row">
+          <span class="appointment-label">Found at location</span>
+          <span id="appt-latest-location" class="appointment-value">None yet</span>
+        </p>
+        <p id="row-last-rescheduled" class="appointment-row">
+          <span class="appointment-label">Last successful reschedule</span>
+          <span id="appt-last-rescheduled" class="appointment-value">None yet</span>
+        </p>
+        <p id="row-last-location" class="appointment-row">
+          <span class="appointment-label">Rescheduled location</span>
+          <span id="appt-last-location" class="appointment-value">None yet</span>
+        </p>
+      </div>
+    </details>
+
+    <section class="card">
+      <details class="help-panel">
+        <summary>How to get a session token (click to expand)</summary>
+        <ol class="help-steps">
+          <li>Open the <strong>same</strong> scheduler URL you pick below: <strong>public</strong> or <strong>www</strong> Texas DPS scheduler.</li>
+          <li>Complete the captcha and sign in until your info loads.</li>
+          <li><strong>Chrome / Edge:</strong> F12 → <strong>Network</strong> → filter by <code>apptapi</code>.</li>
+          <li>Open any request <strong>after</strong> login (e.g. <code>Eligibility</code>, <code>Booking</code>, or not the first <code>auth</code> if Authorization was empty there).</li>
+          <li>Under <strong>Request headers</strong>, copy the full <strong>Authorization</strong> value (or use the <code>token</code> from the <code>auth</code> response <strong>Preview</strong> tab).</li>
+          <li>Paste into <strong>Session token</strong> here → <strong>Save settings</strong> → <strong>Test connection</strong> before starting.</li>
+        </ol>
+        <p class="help-note">Tokens expire; if you see 401 later, copy a fresh one. This tool is unofficial and not affiliated with Texas DPS.</p>
+      </details>
+
+      <h2>Your details</h2>
+      <form id="form-settings" class="grid">
+        <label>Scheduler site (must match where you copied the token)
+          <select name="origin_host" title="Use www if you use www.txdpsscheduler.com in the browser">
+            <option value="public">public.txdpsscheduler.com</option>
+            <option value="www">www.txdpsscheduler.com</option>
+          </select>
+        </label>
+        <label>Email <input type="email" name="email" required autocomplete="email" /></label>
+        <label>First name <input type="text" name="first_name" required autocomplete="given-name" /></label>
+        <label>Last name <input type="text" name="last_name" required autocomplete="family-name" /></label>
+        <label>Date of birth <input type="text" name="date_of_birth" placeholder="MM/DD/YYYY" required /></label>
+        <label>Last 4 SSN <input type="password" name="last4ssn" inputmode="numeric" maxlength="4" minlength="4" required autocomplete="off" /></label>
+        <label>ZIP <input type="text" name="zipcode" inputmode="numeric" required autocomplete="postal-code" /></label>
+        <label>Service type
+          <select name="type_id">
+            <option value="71">71 — New driver license</option>
+            <option value="81">81 — Renew license</option>
+            <option value="21">21 — Road test</option>
+          </select>
+        </label>
+        <label>Max distance (miles) <input type="number" name="distance" value="10" min="1" max="200" step="1" /></label>
+        <label>Check every (seconds) <input type="number" name="check_interval" value="60" min="15" max="3600" step="1" /></label>
+        <label class="full-width checkbox-label">
+          <input type="checkbox" name="stop_after_reschedule" id="stop_after_reschedule" />
+          Stop monitoring automatically after a successful reschedule
+        </label>
+        <label class="full-width">
+          Session token
+          <textarea name="authorization_token" rows="2" autocomplete="off" placeholder="Paste Authorization header value from DevTools (see steps above)"></textarea>
+        </label>
+        <label class="full-width checkbox-label">
+          <input type="checkbox" name="clear_session_token" id="clear_session_token" />
+          Clear saved session token on Save
+        </label>
+      </form>
+      <div class="actions">
+        <button type="button" id="btn-save" class="btn primary">Save settings</button>
+        <button type="button" id="btn-test" class="btn" disabled>Test connection</button>
+        <button type="button" id="btn-start" class="btn success" disabled>Start monitoring</button>
+        <button type="button" id="btn-stop" class="btn danger" disabled>Stop</button>
+        <button type="button" id="btn-notify" class="btn" title="Browser must allow notifications">Enable alerts</button>
+      </div>
+      <p id="settings-msg" class="msg" aria-live="polite"></p>
+      <pre id="test-result" class="test-result" hidden aria-live="polite"></pre>
+    </section>
+
+    <section class="card">
+      <div class="log-toolbar">
+        <h2>Activity log</h2>
+        <div class="log-actions">
+          <button type="button" id="btn-download-log" class="btn">Download log</button>
+          <button type="button" id="btn-clear-log" class="btn">Clear log</button>
+        </div>
+      </div>
+      <pre id="log" class="log" aria-live="polite"></pre>
+    </section>
+  </div>
+  <script src="/assets/app.js"></script>
+</body>
+</html>
