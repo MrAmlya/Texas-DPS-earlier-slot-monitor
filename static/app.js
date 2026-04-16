@@ -131,6 +131,7 @@ async function loadSettings() {
     form.check_interval.value = d.check_interval ?? 60;
     form.origin_host.value = d.origin_host === "www" ? "www" : "public";
     form.stop_after_reschedule.checked = d.stop_after_reschedule === true;
+    form.allow_today_booking.checked = d.allow_today_booking === true;
     form.clear_session_token.checked = false;
     setConfiguredUi(true);
     setMsg(
@@ -162,6 +163,7 @@ btnSave.addEventListener("click", async () => {
     clear_session_token: form.clear_session_token.checked,
     origin_host: form.origin_host.value,
     stop_after_reschedule: form.stop_after_reschedule.checked,
+    allow_today_booking: form.allow_today_booking.checked,
   };
   try {
     const r = await fetch("/api/settings", {

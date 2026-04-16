@@ -32,6 +32,7 @@ class SettingsBody(BaseModel):
     clear_session_token: bool = False
     origin_host: Literal["public", "www"] = "public"
     stop_after_reschedule: bool = False
+    allow_today_booking: bool = False
 
     @field_validator("date_of_birth")
     @classmethod
@@ -143,6 +144,7 @@ def api_settings(body: SettingsBody) -> dict[str, str]:
             authorization_token=token,
             origin_host=body.origin_host,
             stop_after_reschedule=body.stop_after_reschedule,
+            allow_today_booking=body.allow_today_booking,
         )
     return {"ok": "saved"}
 
@@ -167,6 +169,7 @@ def api_get_settings() -> dict[str, Any]:
         "has_session_token": bool(c.authorization_token),
         "origin_host": getattr(c, "origin_host", "public") or "public",
         "stop_after_reschedule": getattr(c, "stop_after_reschedule", False),
+        "allow_today_booking": getattr(c, "allow_today_booking", False),
     }
 
 

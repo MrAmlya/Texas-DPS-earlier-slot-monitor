@@ -71,6 +71,7 @@ class BookerConfig:
     # "public" = public.txdpsscheduler.com, "www" = www.txdpsscheduler.com (match token source)
     origin_host: str = "public"
     stop_after_reschedule: bool = False
+    allow_today_booking: bool = False
 
 
 @dataclass
@@ -298,10 +299,13 @@ class DPSBooker:
             self.state.log("No current appointment date set.")
             return
 
+        today = datetime.now().date()
         for location in locations:
             next_available = datetime.strptime(
                 location["NextAvailableDate"], "%m/%d/%Y"
             )
+            if not cfg.allow_today_booking and next_available.date() == today:
+                continue
             if next_available >= cur_date:
                 continue
 
@@ -334,6 +338,19 @@ class DPSBooker:
             slots = availability["LocationAvailabilityDates"][0].get(
                 "AvailableTimeSlots", []
             )
+            if not cfg.allow_today_booking:
+                today_ymd = today.strftime("%Y-%m-%d")
+                filtered_slots: list[dict[str, Any]] = []
+                for slot in slots:
+                    slot_start = str(slot.get("StartDateTime", ""))
+                    parsed = self._parse_slot_datetime(slot_start)
+                    if parsed is not None:
+                        if parsed.date() == today:
+                            continue
+                    elif slot_start.startswith(today_ymd):
+                        continue
+                    filtered_slots.append(slot)
+                slots = filtered_slots
             if not slots:
                 continue
 
