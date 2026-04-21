@@ -31,37 +31,20 @@
           <span class="appointment-label">Current location</span>
           <span id="appt-current-location" class="appointment-value">Unknown</span>
         </p>
-        <p id="row-latest-found" class="appointment-row">
-          <span class="appointment-label">Latest earlier slot found</span>
-          <span id="appt-latest-found" class="appointment-value">None yet</span>
-        </p>
-        <p id="row-latest-location" class="appointment-row">
-          <span class="appointment-label">Found at location</span>
-          <span id="appt-latest-location" class="appointment-value">None yet</span>
-        </p>
-        <p id="row-last-rescheduled" class="appointment-row">
-          <span class="appointment-label">Last successful reschedule</span>
-          <span id="appt-last-rescheduled" class="appointment-value">None yet</span>
-        </p>
-        <p id="row-last-location" class="appointment-row">
-          <span class="appointment-label">Rescheduled location</span>
-          <span id="appt-last-location" class="appointment-value">None yet</span>
-        </p>
       </div>
     </details>
 
     <section class="card">
       <details class="help-panel">
-        <summary>How to get a session token (click to expand)</summary>
+        <summary>How Connect DPS session works (click to expand)</summary>
         <ol class="help-steps">
-          <li>Open the <strong>same</strong> scheduler URL you pick below: <strong>public</strong> or <strong>www</strong> Texas DPS scheduler.</li>
-          <li>Complete the captcha and sign in until your info loads.</li>
-          <li><strong>Chrome / Edge:</strong> F12 → <strong>Network</strong> → filter by <code>apptapi</code>.</li>
-          <li>Open any request <strong>after</strong> login (e.g. <code>Eligibility</code>, <code>Booking</code>, or not the first <code>auth</code> if Authorization was empty there).</li>
-          <li>Under <strong>Request headers</strong>, copy the full <strong>Authorization</strong> value (or use the <code>token</code> from the <code>auth</code> response <strong>Preview</strong> tab).</li>
-          <li>Paste into <strong>Session token</strong> here → <strong>Save settings</strong> → <strong>Test connection</strong> before starting.</li>
+          <li>Save your details first.</li>
+          <li>Click <strong>Connect DPS session</strong>.</li>
+          <li>A browser opens on the selected scheduler site (<strong>public</strong> or <strong>www</strong>).</li>
+          <li>Complete captcha and sign in there as usual.</li>
+          <li>Come back here and click <strong>Test connection</strong>.</li>
         </ol>
-        <p class="help-note">Tokens expire; if you see 401 later, copy a fresh one. This tool is unofficial and not affiliated with Texas DPS.</p>
+        <p class="help-note">Tokens expire; if you see 401 later, run Connect DPS session again. This tool is unofficial and not affiliated with Texas DPS.</p>
       </details>
 
       <h2>Your details</h2>
@@ -95,17 +78,10 @@
           <input type="checkbox" name="allow_today_booking" id="allow_today_booking" />
           Allow rescheduling to today's available slots
         </label>
-        <label class="full-width">
-          Session token
-          <textarea name="authorization_token" rows="2" autocomplete="off" placeholder="Paste Authorization header value from DevTools (see steps above)"></textarea>
-        </label>
-        <label class="full-width checkbox-label">
-          <input type="checkbox" name="clear_session_token" id="clear_session_token" />
-          Clear saved session token on Save
-        </label>
       </form>
       <div class="actions">
         <button type="button" id="btn-save" class="btn primary">Save settings</button>
+        <button type="button" id="btn-connect-session" class="btn">Connect DPS session</button>
         <button type="button" id="btn-test" class="btn" disabled>Test connection</button>
         <button type="button" id="btn-start" class="btn success" disabled>Start monitoring</button>
         <button type="button" id="btn-stop" class="btn danger" disabled>Stop</button>

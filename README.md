@@ -54,6 +54,7 @@ requirements.txt    # Python dependencies
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+python -m playwright install chromium
 ```
 
 ## Run
@@ -72,15 +73,21 @@ http://127.0.0.1:8000
 
 1. Open the app in your browser.
 2. Choose scheduler site (`public` or `www`) to match where your token was captured.
-3. Enter your details and session token.
+3. Enter your details.
 4. Click **Save settings**.
-5. Click **Test connection**.
-6. Click **Start monitoring**.
-7. Watch the status strip, activity log, and appointment details panel.
+5. Click **Connect DPS session** and complete login/captcha in the opened browser window.
+6. Click **Test connection**.
+7. Click **Start monitoring**.
+8. Watch the status strip, activity log, and appointment details panel.
 
+Alternative manual method:
+
+- You can still paste a session token manually into the **Session token** field.
 ## Session Token (High Level)
 
-Use your browser DevTools on the official DPS scheduler site and copy the `Authorization` value from a relevant API request after login/captcha completion. Paste it into **Session token** in the app.
+Preferred: use **Connect DPS session** to capture token automatically from a real browser login.
+
+Manual fallback: use browser DevTools on the official DPS scheduler site and copy the `Authorization` value from a relevant API request after login/captcha completion.
 
 ## API Endpoints
 
@@ -89,6 +96,7 @@ Use your browser DevTools on the official DPS scheduler site and copy the `Autho
 - `POST /api/settings` – save settings
 - `GET /api/settings` – load saved settings
 - `POST /api/test-connection` – validate identity/token
+- `POST /api/session/connect` – open browser login and capture session token
 - `POST /api/start` – start monitoring
 - `POST /api/stop` – stop monitoring
 - `POST /api/logs/clear` – clear activity log

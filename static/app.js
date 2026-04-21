@@ -1,5 +1,6 @@
 const form = document.getElementById("form-settings");
 const btnSave = document.getElementById("btn-save");
+const btnConnectSession = document.getElementById("btn-connect-session");
 const btnTest = document.getElementById("btn-test");
 const btnStart = document.getElementById("btn-start");
 const btnStop = document.getElementById("btn-stop");
@@ -14,16 +15,8 @@ const statusText = document.getElementById("status-text");
 const appointmentPanel = document.getElementById("appointment-panel");
 const apptCurrent = document.getElementById("appt-current");
 const apptCurrentLocation = document.getElementById("appt-current-location");
-const apptLatestFound = document.getElementById("appt-latest-found");
-const apptLatestLocation = document.getElementById("appt-latest-location");
-const apptLastRescheduled = document.getElementById("appt-last-rescheduled");
-const apptLastLocation = document.getElementById("appt-last-location");
 const rowCurrent = document.getElementById("row-current");
 const rowCurrentLocation = document.getElementById("row-current-location");
-const rowLatestFound = document.getElementById("row-latest-found");
-const rowLatestLocation = document.getElementById("row-latest-location");
-const rowLastRescheduled = document.getElementById("row-last-rescheduled");
-const rowLastLocation = document.getElementById("row-last-location");
 
 let prevRescheduled = false;
 let statusInitialized = false;
@@ -47,6 +40,7 @@ function formatDetail(detail) {
 function setConfiguredUi(configured) {
   btnStart.disabled = !configured;
   btnTest.disabled = !configured;
+  btnConnectSession.disabled = false;
 }
 
 function updateStatusStrip(d) {
@@ -74,43 +68,18 @@ function updateAppointmentDetails(d) {
 
   const showCurrent = !!appt.current_datetime;
   const showCurrentLocation = !!appt.current_location;
-  const showLatestFound = !!appt.latest_found_datetime;
-  const showLatestLocation = !!appt.latest_found_location;
-  const showLastRescheduled = !!appt.last_rescheduled_datetime;
-  const showLastLocation = !!appt.last_rescheduled_location;
 
   if (rowCurrent) rowCurrent.hidden = !showCurrent;
   if (rowCurrentLocation) rowCurrentLocation.hidden = !showCurrentLocation;
-  if (rowLatestFound) rowLatestFound.hidden = !showLatestFound;
-  if (rowLatestLocation) rowLatestLocation.hidden = !showLatestLocation;
-  if (rowLastRescheduled) rowLastRescheduled.hidden = !showLastRescheduled;
-  if (rowLastLocation) rowLastLocation.hidden = !showLastLocation;
 
   if (showCurrent && apptCurrent) apptCurrent.textContent = appt.current_datetime;
   if (showCurrentLocation && apptCurrentLocation) {
     apptCurrentLocation.textContent = appt.current_location;
   }
-  if (showLatestFound && apptLatestFound) {
-    apptLatestFound.textContent = appt.latest_found_datetime;
-  }
-  if (showLatestLocation && apptLatestLocation) {
-    apptLatestLocation.textContent = appt.latest_found_location;
-  }
-  if (showLastRescheduled && apptLastRescheduled) {
-    apptLastRescheduled.textContent = appt.last_rescheduled_datetime;
-  }
-  if (showLastLocation && apptLastLocation) {
-    apptLastLocation.textContent = appt.last_rescheduled_location;
-  }
 
-  const hasAnyValue =
-    showCurrent ||
-    showCurrentLocation ||
-    showLatestFound ||
-    showLatestLocation ||
-    showLastRescheduled ||
-    showLastLocation;
-  appointmentPanel.hidden = !(hasFetchedDetails && hasAnyValue);
+  const hasAnyValue = showCurrent || showCurrentLocation;
+  appointmentPanel.hidden = !hasFetchedDetails;
+  appointmentPanel.open = hasAnyValue;
 }
 
 async function loadSettings() {
@@ -132,12 +101,11 @@ async function loadSettings() {
     form.origin_host.value = d.origin_host === "www" ? "www" : "public";
     form.stop_after_reschedule.checked = d.stop_after_reschedule === true;
     form.allow_today_booking.checked = d.allow_today_booking === true;
-    form.clear_session_token.checked = false;
     setConfiguredUi(true);
     setMsg(
       d.has_session_token
         ? "Settings loaded (re-enter last 4 SSN to update; session token kept on server)."
-        : "Settings loaded — add Session token from the scheduler site, then Test connection.",
+        : "Settings loaded — click Connect DPS session, complete login/captcha, then Test connection.",
       ""
     );
   } catch {
@@ -159,11 +127,11 @@ btnSave.addEventListener("click", async () => {
     type_id: Number(form.type_id.value),
     distance: Number(form.distance.value),
     check_interval: Number(form.check_interval.value),
-    authorization_token: form.authorization_token.value.trim(),
-    clear_session_token: form.clear_session_token.checked,
     origin_host: form.origin_host.value,
     stop_after_reschedule: form.stop_after_reschedule.checked,
     allow_today_booking: form.allow_today_booking.checked,
+    authorization_token: "",
+    clear_session_token: false,
   };
   try {
     const r = await fetch("/api/settings", {
@@ -182,12 +150,40 @@ btnSave.addEventListener("click", async () => {
       setMsg(detail || t || "Save failed", "err");
       return;
     }
-    form.clear_session_token.checked = false;
-    form.authorization_token.value = "";
-    setMsg("Saved. Run Test connection, then Start monitoring.", "ok");
+    setMsg("Saved. Click Connect DPS session, then run Test connection.", "ok");
     setConfiguredUi(true);
   } catch (e) {
     setMsg("Network error: " + e.message, "err");
+  }
+});
+
+btnConnectSession.addEventListener("click", async () => {
+  setMsg(
+    "Opening DPS site in a browser. Complete captcha/login there; token will be captured automatically…",
+    ""
+  );
+  btnConnectSession.disabled = true;
+  try {
+    const r = await fetch("/api/session/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ timeout_seconds: 300 }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const detail = formatDetail(data.detail) || r.statusText || "Session connect failed";
+      setMsg(detail, "err");
+      return;
+    }
+    setMsg("Session token captured successfully. Run Test connection next.", "ok");
+    await loadSettings();
+    await pollStatus();
+  } catch (e) {
+    setMsg("Network error: " + e.message, "err");
+  } finally {
+    if (!btnSave.disabled) {
+      btnConnectSession.disabled = false;
+    }
   }
 });
 
@@ -327,11 +323,13 @@ async function pollStatus() {
     const configured = d.configured === true;
     if (!d.running) {
       btnStart.disabled = !configured;
+      btnConnectSession.disabled = false;
       btnTest.disabled = !configured;
       btnStop.disabled = true;
       btnSave.disabled = false;
     } else {
       btnStart.disabled = true;
+      btnConnectSession.disabled = true;
       btnTest.disabled = true;
       btnStop.disabled = false;
       btnSave.disabled = true;

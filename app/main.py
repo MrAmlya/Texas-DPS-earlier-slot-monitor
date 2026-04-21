@@ -1,4 +1,5 @@
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, Optional
@@ -59,6 +60,72 @@ class SettingsBody(BaseModel):
         if len(v) != 5 or not v.isdigit():
             raise ValueError("zipcode must be exactly 5 digits")
         return v
+
+
+class SessionConnectBody(BaseModel):
+    timeout_seconds: int = Field(240, ge=60, le=900)
+
+
+def _scheduler_site_url(origin_host: str) -> str:
+    if (origin_host or "public").lower() == "www":
+        return "https://www.txdpsscheduler.com/"
+    return "https://public.txdpsscheduler.com/"
+
+
+def _capture_session_token_via_browser(origin_host: str, timeout_seconds: int) -> str:
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as e:
+        raise HTTPException(
+            500,
+            "Playwright is not installed. Run: pip install playwright && "
+            "python -m playwright install chromium",
+        ) from e
+
+    target_url = _scheduler_site_url(origin_host)
+    captured_token: dict[str, Optional[str]] = {"value": None}
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=False)
+            context = browser.new_context()
+            page = context.new_page()
+
+            def _on_request(request: Any) -> None:
+                if "apptapi.txdpsscheduler.com" not in request.url:
+                    return
+                headers = request.headers
+                auth = headers.get("authorization") or headers.get("Authorization")
+                if auth and auth.strip():
+                    captured_token["value"] = auth.strip()
+
+            page.on("request", _on_request)
+            page.goto(target_url, wait_until="domcontentloaded")
+
+            deadline = time.time() + timeout_seconds
+            while time.time() < deadline and not captured_token["value"]:
+                page.wait_for_timeout(500)
+
+            browser.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        msg = str(e)
+        if "Executable doesn't exist" in msg or "playwright install" in msg:
+            raise HTTPException(
+                500,
+                "Playwright browser is missing. Run: python -m playwright install chromium",
+            ) from e
+        raise HTTPException(500, f"Session connect failed: {msg}") from e
+
+    token = captured_token["value"]
+    if not token:
+        raise HTTPException(
+            408,
+            "Timed out waiting for DPS session. Opened browser window, complete "
+            "captcha/login, then try again.",
+        )
+    return token
 
 
 state = BookerState()
@@ -170,6 +237,29 @@ def api_get_settings() -> dict[str, Any]:
         "origin_host": getattr(c, "origin_host", "public") or "public",
         "stop_after_reschedule": getattr(c, "stop_after_reschedule", False),
         "allow_today_booking": getattr(c, "allow_today_booking", False),
+    }
+
+
+@app.post("/api/session/connect")
+def api_session_connect(body: SessionConnectBody) -> dict[str, Any]:
+    global _config
+    if state.running:
+        raise HTTPException(400, "Stop monitoring before connecting session.")
+    with _config_lock:
+        if _config is None:
+            raise HTTPException(400, "Save settings first.")
+        origin_host = _config.origin_host
+
+    token = _capture_session_token_via_browser(origin_host, body.timeout_seconds)
+    with _config_lock:
+        if _config is None:
+            raise HTTPException(400, "Settings were cleared; save settings and retry.")
+        _config.authorization_token = token
+
+    return {
+        "ok": True,
+        "has_session_token": True,
+        "origin_host": origin_host,
     }
 
 

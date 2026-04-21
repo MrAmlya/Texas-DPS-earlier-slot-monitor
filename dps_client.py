@@ -164,14 +164,14 @@ class DPSBooker:
                     if resp.status_code == 401:
                         if not (cfg.authorization_token or "").strip():
                             self.state.log(
-                                "401: Use the same site as “Scheduler site” below (public or www), "
-                                "complete the captcha, then DevTools → Network → apptapi request → "
-                                "copy Authorization (or token from auth response) → Session token → Save."
+                                "401: No active session token. In the app click "
+                                "“Connect DPS session”, complete captcha/login in the opened browser, "
+                                "then test again. Manual token paste is optional fallback only."
                             )
                         else:
                             self.state.log(
-                                "401: Session token rejected or expired — copy a fresh Authorization "
-                                "value from the official site (same steps as above)."
+                                "401: Session token rejected or expired. Re-run “Connect DPS session” "
+                                "to capture a fresh token (manual paste is fallback)."
                             )
                     try:
                         self.state.log(resp.text[:500])
@@ -298,21 +298,28 @@ class DPSBooker:
         if cur_date is None:
             self.state.log("No current appointment date set.")
             return
+        current_appointment_dt = self._parse_slot_datetime(
+            self.state.current_appointment_raw or ""
+        )
+        if current_appointment_dt is None:
+            current_appointment_dt = cur_date
 
         today = datetime.now().date()
+        best_location: Optional[dict[str, Any]] = None
+        best_slot: Optional[dict[str, Any]] = None
+        best_slot_dt: Optional[datetime] = None
+
         for location in locations:
-            next_available = datetime.strptime(
-                location["NextAvailableDate"], "%m/%d/%Y"
-            )
-            if not cfg.allow_today_booking and next_available.date() == today:
-                continue
-            if next_available >= cur_date:
+            try:
+                next_available = datetime.strptime(
+                    location["NextAvailableDate"], "%m/%d/%Y"
+                )
+            except (KeyError, ValueError, TypeError):
                 continue
 
-            self.state.log(
-                f"Earlier date at {location['Name']} ({location['Distance']} mi) "
-                f"on {location['NextAvailableDate']}"
-            )
+            if next_available.date() > current_appointment_dt.date():
+                continue
+
             availability = location.get("Availability")
             if not availability:
                 self.state.log("Fetching availability…")
@@ -335,98 +342,102 @@ class DPSBooker:
             if not availability or not availability.get("LocationAvailabilityDates"):
                 continue
 
-            slots = availability["LocationAvailabilityDates"][0].get(
-                "AvailableTimeSlots", []
-            )
-            if not cfg.allow_today_booking:
-                today_ymd = today.strftime("%Y-%m-%d")
-                filtered_slots: list[dict[str, Any]] = []
+            location_dates = availability.get("LocationAvailabilityDates", [])
+            for date_block in location_dates:
+                slots = date_block.get("AvailableTimeSlots", [])
                 for slot in slots:
-                    slot_start = str(slot.get("StartDateTime", ""))
-                    parsed = self._parse_slot_datetime(slot_start)
-                    if parsed is not None:
-                        if parsed.date() == today:
-                            continue
-                    elif slot_start.startswith(today_ymd):
+                    slot_start = str(slot.get("StartDateTime", "")).strip()
+                    slot_dt = self._parse_slot_datetime(slot_start)
+                    if slot_dt is None:
                         continue
-                    filtered_slots.append(slot)
-                slots = filtered_slots
-            if not slots:
-                continue
+                    if not cfg.allow_today_booking and slot_dt.date() == today:
+                        continue
+                    if slot_dt >= current_appointment_dt:
+                        continue
+                    if best_slot_dt is None or slot_dt < best_slot_dt:
+                        best_slot_dt = slot_dt
+                        best_location = location
+                        best_slot = slot
 
-            last = slots[-1]
-            selected_slot_id = last["SlotId"]
-            scheduled_time = last["StartDateTime"]
-            formatted_slot = self._format_slot(scheduled_time)
-            self.state.latest_found_slot_raw = scheduled_time
-            self.state.latest_found_slot_display = formatted_slot
-            self.state.latest_found_location_name = location["Name"]
-            self.state.log(f"Holding slot {selected_slot_id} at {scheduled_time}…")
+        if best_location is None or best_slot is None or best_slot_dt is None:
+            self.state.log("No earlier slot found this round.")
+            return
 
-            hold_res = requests.post(
-                f"{BASE_URL}/HoldSlot",
-                json={**credential, "SlotId": selected_slot_id},
+        scheduled_time = str(best_slot["StartDateTime"])
+        selected_slot_id = best_slot["SlotId"]
+        location_name = str(best_location.get("Name", "Unknown location"))
+        location_distance = best_location.get("Distance")
+        self.state.log(
+            f"Earliest slot candidate at {location_name} ({location_distance} mi) "
+            f"on {best_slot_dt.strftime('%m/%d/%Y %I:%M %p')}"
+        )
+        formatted_slot = self._format_slot(scheduled_time)
+        self.state.latest_found_slot_raw = scheduled_time
+        self.state.latest_found_slot_display = formatted_slot
+        self.state.latest_found_location_name = location_name
+        self.state.log(f"Holding slot {selected_slot_id} at {scheduled_time}…")
+
+        hold_res = requests.post(
+            f"{BASE_URL}/HoldSlot",
+            json={**credential, "SlotId": selected_slot_id},
+            headers=api_headers(cfg),
+            timeout=60,
+        )
+        hold_res.raise_for_status()
+        hold_json = hold_res.json()
+        held = hold_json.get("SlotHeldSuccessfully", False)
+        self.state.log(f"Hold status: {held}")
+
+        if not held:
+            self.state.log("Hold slot failed.")
+            return
+
+        self.state.log("Rescheduling…")
+        payload = {
+            **credential,
+            "Email": cfg.email,
+            "ServiceTypeId": cfg.type_id,
+            "BookingDateTime": scheduled_time,
+            "BookingDuration": best_slot["Duration"],
+            "SpanishLanguage": "N",
+            "SiteId": best_location["Id"],
+            "ResponseId": self.state.response_id,
+            "CardNumber": "",
+            "CellPhone": "",
+            "HomePhone": "",
+        }
+        try:
+            res = requests.post(
+                f"{BASE_URL}/RescheduleBooking",
+                json=payload,
                 headers=api_headers(cfg),
                 timeout=60,
             )
-            hold_res.raise_for_status()
-            hold_json = hold_res.json()
-            held = hold_json.get("SlotHeldSuccessfully", False)
-            self.state.log(f"Hold status: {held}")
-
-            if not held:
-                self.state.log("Hold slot failed.")
-                continue
-
-            self.state.log("Rescheduling…")
-            payload = {
-                **credential,
-                "Email": cfg.email,
-                "ServiceTypeId": cfg.type_id,
-                "BookingDateTime": scheduled_time,
-                "BookingDuration": last["Duration"],
-                "SpanishLanguage": "N",
-                "SiteId": location["Id"],
-                "ResponseId": self.state.response_id,
-                "CardNumber": "",
-                "CellPhone": "",
-                "HomePhone": "",
-            }
-            try:
-                res = requests.post(
-                    f"{BASE_URL}/RescheduleBooking",
-                    json=payload,
-                    headers=api_headers(cfg),
-                    timeout=60,
+            res.raise_for_status()
+            self.state.rescheduled = True
+            self.state.last_rescheduled_slot_raw = scheduled_time
+            self.state.last_rescheduled_slot_display = formatted_slot
+            self.state.last_rescheduled_location_name = location_name
+            self.state.has_existing_appointment = True
+            self.state.current_appointment_raw = scheduled_time
+            self.state.current_appointment_display = formatted_slot
+            self.state.current_location_name = location_name
+            parsed_slot = self._parse_slot_datetime(scheduled_time)
+            if parsed_slot is not None:
+                self.state.cur_appointment_date = datetime(
+                    parsed_slot.year,
+                    parsed_slot.month,
+                    parsed_slot.day,
                 )
-                res.raise_for_status()
-                self.state.rescheduled = True
-                self.state.last_rescheduled_slot_raw = scheduled_time
-                self.state.last_rescheduled_slot_display = formatted_slot
-                self.state.last_rescheduled_location_name = location["Name"]
-                self.state.has_existing_appointment = True
-                self.state.current_appointment_raw = scheduled_time
-                self.state.current_appointment_display = formatted_slot
-                self.state.current_location_name = location["Name"]
-                parsed_slot = self._parse_slot_datetime(scheduled_time)
-                if parsed_slot is not None:
-                    self.state.cur_appointment_date = datetime(
-                        parsed_slot.year,
-                        parsed_slot.month,
-                        parsed_slot.day,
-                    )
-                self.state.log("Reschedule succeeded — check your email.")
-                return
-            except requests.RequestException as e:
-                self.state.log(f"Reschedule failed: {e}")
-                if getattr(e, "response", None) is not None and e.response is not None:
-                    try:
-                        self.state.log(e.response.text[:500])
-                    except Exception:
-                        pass
-
-        if not self.state.rescheduled:
-            self.state.log("No earlier date found this round.")
+            self.state.log("Reschedule succeeded — check your email.")
+            return
+        except requests.RequestException as e:
+            self.state.log(f"Reschedule failed: {e}")
+            if getattr(e, "response", None) is not None and e.response is not None:
+                try:
+                    self.state.log(e.response.text[:500])
+                except Exception:
+                    pass
 
     def run_loop(
         self,
