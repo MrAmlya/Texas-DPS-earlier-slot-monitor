@@ -15,14 +15,11 @@ A local web app that monitors Texas DPS appointment availability and can resched
 - Tests your login/session token before starting monitoring.
 - Polls for earlier appointment availability near your ZIP code.
 - Optionally attempts auto-reschedule when an earlier slot is available.
+- Can restrict same-day booking unless **Allow rescheduling to today's available slots** is enabled.
 - Shows live activity logs in the UI.
 - Shows appointment details in a collapsible panel (when available):
   - Current appointment
   - Current location
-  - Latest earlier slot found
-  - Found-at location
-  - Last successful reschedule
-  - Rescheduled location
 
 ## Tech Stack
 
@@ -72,7 +69,7 @@ http://127.0.0.1:8000
 ## Usage Flow
 
 1. Open the app in your browser.
-2. Choose scheduler site (`public` or `www`) to match where your token was captured.
+2. Choose scheduler site (`public` or `www`) to match the site you use for DPS login.
 3. Enter your details.
 4. Click **Save settings**.
 5. Click **Connect DPS session** and complete login/captcha in the opened browser window.
@@ -80,14 +77,11 @@ http://127.0.0.1:8000
 7. Click **Start monitoring**.
 8. Watch the status strip, activity log, and appointment details panel.
 
-Alternative manual method:
-
-- You can still paste a session token manually into the **Session token** field.
 ## Session Token (High Level)
 
 Preferred: use **Connect DPS session** to capture token automatically from a real browser login.
 
-Manual fallback: use browser DevTools on the official DPS scheduler site and copy the `Authorization` value from a relevant API request after login/captcha completion.
+The app stores token/session state server-side for monitoring; if it expires, run **Connect DPS session** again.
 
 ## API Endpoints
 
@@ -104,10 +98,11 @@ Manual fallback: use browser DevTools on the official DPS scheduler site and cop
 ## Troubleshooting
 
 - `401` errors:
-  - Token expired or mismatched site (`public` vs `www`).
-  - Capture a fresh token from the same scheduler host you selected in the app.
+  - Token/session expired or scheduler host mismatched (`public` vs `www`).
+  - Run **Connect DPS session** again and complete login/captcha.
 - No earlier slots found:
   - Increase max distance.
+  - Enable same-day booking if you also want today's slots considered.
   - Keep monitor running longer.
 - App won’t start:
   - Save settings first.
